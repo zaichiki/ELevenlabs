@@ -183,37 +183,85 @@ app.MapPost("/api/cards/check-duplicates", async (IHttpClientFactory httpClientF
     var cards = cardStore[request.SessionId];
     var duplicates = new Dictionary<string, bool>();
     
-    foreach (var card in cards)
+    // Build a batch query to check all cards at once
+    var deckFilter = !string.IsNullOrEmpty(request.DeckName) ? $"deck:\\\"{request.DeckName}\\\" " : "";
+    var expressions = cards.Select(c => c.Greek.Replace("\"", "\\\"")).ToList();
+    
+    // Create an OR query for all expressions
+    var queryParts = expressions.Select(exp => $"(Expression:\\\"{exp}\\\")");
+    var combinedQuery = $"{deckFilter}({string.Join(" OR ", queryParts)})";
+    
+    var json = $"{{\"action\": \"findNotes\", \"version\": 6, \"params\": {{\"query\": \"{combinedQuery}\"}}}}";
+    
+    logger.LogInformation($"Batch checking {cards.Count} cards for duplicates");
+    
+    try
     {
-        // Escape the Greek text for JSON and search query
-        var escapedGreek = card.Greek.Replace("\"", "\\\"");
-        var json = $"{{\"action\": \"findNotes\", \"version\": 6, \"params\": {{\"query\": \"Expression:{escapedGreek}\"}}}}";
+        var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+        var response = await http.PostAsync(ankiConnectUrl, content);
+        var responseBody = await response.Content.ReadAsStringAsync();
         
-        logger.LogInformation($"Checking duplicate for: {card.Greek}, Query: {json}");
+        logger.LogInformation($"Batch duplicate check response: {responseBody}");
         
-        try
+        var result = System.Text.Json.JsonSerializer.Deserialize<AnkiConnectResponse<List<long>>>(responseBody, jsonOptions);
+        var foundNoteIds = result?.Result ?? new List<long>();
+        
+        if (foundNoteIds.Count > 0)
         {
-            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-            var response = await http.PostAsync(ankiConnectUrl, content);
-            var responseBody = await response.Content.ReadAsStringAsync();
+            // Get the actual field values for these notes to match them to our cards
+            var notesInfoJson = $"{{\"action\": \"notesInfo\", \"version\": 6, \"params\": {{\"notes\": [{string.Join(",", foundNoteIds)}]}}}}";
+            var notesInfoContent = new StringContent(notesInfoJson, System.Text.Encoding.UTF8, "application/json");
+            var notesInfoResponse = await http.PostAsync(ankiConnectUrl, notesInfoContent);
+            var notesInfoBody = await notesInfoResponse.Content.ReadAsStringAsync();
             
-            logger.LogInformation($"Duplicate check response: {responseBody}");
+            logger.LogInformation($"Notes info response: {notesInfoBody}");
             
-            var result = System.Text.Json.JsonSerializer.Deserialize<AnkiConnectResponse<List<long>>>(responseBody, jsonOptions);
+            var notesInfoResult = System.Text.Json.JsonSerializer.Deserialize<AnkiConnectResponse<List<Dictionary<string, object>>>>(notesInfoBody, jsonOptions);
+            var existingExpressions = new HashSet<string>();
             
-            var isDuplicate = result?.Result != null && result.Result.Count > 0;
-            duplicates[card.Id] = isDuplicate;
-            
-            // Auto-deselect duplicates
-            if (isDuplicate)
+            if (notesInfoResult?.Result != null)
             {
-                card.Selected = false;
-                logger.LogInformation($"Found duplicate, deselecting: {card.Greek}");
+                foreach (var noteInfo in notesInfoResult.Result)
+                {
+                    if (noteInfo.ContainsKey("fields"))
+                    {
+                        var fieldsElement = (System.Text.Json.JsonElement)noteInfo["fields"];
+                        if (fieldsElement.TryGetProperty("Expression", out var expressionProp) && 
+                            expressionProp.TryGetProperty("value", out var expressionValue))
+                        {
+                            existingExpressions.Add(expressionValue.GetString() ?? "");
+                        }
+                    }
+                }
+            }
+            
+            // Now mark duplicates based on the expressions we found
+            foreach (var card in cards)
+            {
+                var isDuplicate = existingExpressions.Contains(card.Greek);
+                duplicates[card.Id] = isDuplicate;
+                
+                if (isDuplicate)
+                {
+                    card.Selected = false;
+                    logger.LogInformation($"Found duplicate, deselecting: {card.Greek}");
+                }
             }
         }
-        catch (Exception ex)
+        else
         {
-            logger.LogError(ex, $"Error checking duplicate for: {card.Greek}");
+            // No duplicates found
+            foreach (var card in cards)
+            {
+                duplicates[card.Id] = false;
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error checking duplicates");
+        foreach (var card in cards)
+        {
             duplicates[card.Id] = false;
         }
     }
@@ -608,7 +656,7 @@ record FlashCard
 }
 
 record ParseTextRequest(string Text);
-record DuplicateCheckRequest(string SessionId, string? AnkiConnectUrl);
+record DuplicateCheckRequest(string SessionId, string? AnkiConnectUrl, string? DeckName);
 record AudioGenerateRequest(string Text, string ApiKey, string? VoiceId);
 record GeminiExplainRequest(string Greek, string English, string ApiKey);
 record CreateSingleCardRequest(

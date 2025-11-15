@@ -508,12 +508,13 @@
             if (!sessionId) return;
 
             const ankiUrl = window.ankiConnectUrl || "http://localhost:8765";
+            const deckName = window.defaultDeck || "EL Custom Deck";
             
             try {
                 const response = await fetch('/api/cards/check-duplicates', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId, ankiConnectUrl: ankiUrl })
+                    body: JSON.stringify({ sessionId, ankiConnectUrl: ankiUrl, deckName })
                 });
 
                 duplicates = await response.json();
