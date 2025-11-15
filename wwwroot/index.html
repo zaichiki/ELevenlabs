@@ -352,6 +352,7 @@
                 <div class="button-group">
                     <button onclick="selectAll()">Select All</button>
                     <button onclick="deselectAll()">Deselect All</button>
+                    <button onclick="generateAllExplanations()" style="background: #ff9800;">🤖 Generate All Explanations</button>
                     <button class="btn-success" onclick="createCards()">Create Selected Cards</button>
                 </div>
 
@@ -384,6 +385,7 @@
                 // Store all config for later
                 window.ankiConnectUrl = config.ankiConnectUrl;
                 window.elevenLabsApiKey = config.elevenLabsApiKey;
+                window.geminiApiKey = config.geminiApiKey;
                 window.defaultVoiceId = config.defaultVoiceId;
                 window.defaultDeck = config.defaultDeck;
                 window.defaultModel = config.defaultModel;
@@ -482,6 +484,19 @@
                             <textarea rows="3" 
                                       style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; resize: vertical;"
                                       onchange="updateCard('${card.id}', 'translation', this.value)">${escapeHtml(card.translation)}</textarea>
+                        </div>
+                        <div class="card-field" style="grid-column: 1 / -1;">
+                            <label>💡 Russian Explanation 
+                                <button onclick="generateExplanation('${card.id}')" 
+                                        style="padding: 4px 12px; font-size: 0.85em; margin-left: 8px;"
+                                        title="Generate explanation using Gemini AI">
+                                    🤖 Auto-Generate
+                                </button>
+                            </label>
+                            <textarea rows="2" 
+                                      id="explanation-${card.id}"
+                                      style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: inherit; resize: vertical;"
+                                      onchange="updateCard('${card.id}', 'russianExplanation', this.value)">${escapeHtml(card.russianExplanation || '')}</textarea>
                         </div>
                     </div>
                     ${duplicates[card.id] ? '<span class="duplicate-badge">DUPLICATE</span>' : ''}
@@ -627,6 +642,122 @@
                 });
             } catch (error) {
                 console.error('Error updating card:', error);
+            }
+        }
+
+        async function generateExplanation(cardId) {
+            const card = cards.find(c => c.id === cardId);
+            if (!card) return;
+
+            const apiKey = window.geminiApiKey;
+            if (!apiKey) {
+                showStatus('Gemini API key not configured in appsettings.json', 'error');
+                return;
+            }
+
+            const explanationField = document.getElementById(`explanation-${cardId}`);
+            if (explanationField) {
+                explanationField.value = 'Генерация объяснения...';
+                explanationField.disabled = true;
+            }
+
+            try {
+                // Extract English from translation (first line)
+                const englishTranslation = card.translation.split('\n')[0];
+                
+                const response = await fetch('/api/gemini/explain', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        greek: card.greek,
+                        english: englishTranslation,
+                        apiKey: apiKey
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.explanation) {
+                    card.russianExplanation = result.explanation;
+                    if (explanationField) {
+                        explanationField.value = result.explanation;
+                    }
+                    await updateCard(cardId, 'russianExplanation', result.explanation);
+                    showStatus('✅ Explanation generated successfully!', 'success');
+                } else {
+                    throw new Error('No explanation returned');
+                }
+            } catch (error) {
+                showStatus(`Error generating explanation: ${error.message}`, 'error');
+                if (explanationField) {
+                    explanationField.value = card.russianExplanation || '';
+                }
+            } finally {
+                if (explanationField) {
+                    explanationField.disabled = false;
+                }
+            }
+        }
+
+        async function generateAllExplanations() {
+            const apiKey = window.geminiApiKey;
+            if (!apiKey) {
+                showStatus('Gemini API key not configured in appsettings.json', 'error');
+                return;
+            }
+
+            const cardsWithoutExplanation = cards.filter(c => !c.russianExplanation || c.russianExplanation.trim() === '');
+            if (cardsWithoutExplanation.length === 0) {
+                showStatus('All cards already have explanations!', 'info');
+                return;
+            }
+
+            showStatus(`Generating explanations for ${cardsWithoutExplanation.length} cards...`, 'info', true);
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < cardsWithoutExplanation.length; i++) {
+                const card = cardsWithoutExplanation[i];
+                showStatus(`[${i + 1}/${cardsWithoutExplanation.length}] Generating for: ${card.greek}`, 'info', true);
+                
+                try {
+                    const englishTranslation = card.translation.split('\n')[0];
+                    
+                    const response = await fetch('/api/gemini/explain', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            greek: card.greek,
+                            english: englishTranslation,
+                            apiKey: apiKey
+                        })
+                    });
+
+                    const result = await response.json();
+                    
+                    if (result.explanation) {
+                        card.russianExplanation = result.explanation;
+                        await updateCard(card.id, 'russianExplanation', result.explanation);
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (error) {
+                    console.error(`Error generating explanation for ${card.greek}:`, error);
+                    failCount++;
+                }
+                
+                // Small delay to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            renderCards();
+            
+            if (failCount === 0) {
+                showStatus(`✅ Successfully generated ${successCount} explanations!`, 'success');
+            } else {
+                showStatus(`Generated ${successCount} explanations, ${failCount} failed`, 'error');
             }
         }
 

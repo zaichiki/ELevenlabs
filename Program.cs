@@ -40,6 +40,7 @@ app.MapGet("/api/config", () =>
     return Results.Ok(new
     {
         elevenLabsApiKey = app.Configuration["ElevenLabs:ApiKey"] ?? "",
+        geminiApiKey = app.Configuration["Gemini:ApiKey"] ?? "",
         defaultVoiceId = app.Configuration["ElevenLabs:DefaultVoiceId"] ?? "pNInz6obpgDQGcFmaJgB",
         ankiConnectUrl = app.Configuration["AnkiConnect:Url"] ?? "http://localhost:8765",
         defaultDeck = app.Configuration["AnkiConnect:DefaultDeck"] ?? "Default",
@@ -51,7 +52,7 @@ app.MapGet("/api/config", () =>
 app.MapGet("/", () => Results.Content(File.ReadAllText("wwwroot/index.html"), "text/html"));
 
 // Parse text input
-app.MapPost("/api/cards/parse", async (ParseTextRequest request) =>
+app.MapPost("/api/cards/parse", (ParseTextRequest request) =>
 {
     if (string.IsNullOrWhiteSpace(request.Text))
         return Results.BadRequest("No text provided");
@@ -164,6 +165,7 @@ app.MapPut("/api/cards/{sessionId}/{cardId}", (string sessionId, string cardId, 
     
     card.Greek = updatedCard.Greek;
     card.Translation = updatedCard.Translation;
+    card.RussianExplanation = updatedCard.RussianExplanation;
     card.Selected = updatedCard.Selected;
     
     return Results.Ok(card);
@@ -308,11 +310,13 @@ app.MapPost("/api/cards/create-single", async (IHttpClientFactory httpClientFact
         
         // Convert newlines to HTML breaks for Anki
         var meaningHtml = card.Translation.Replace("\n", "<br>");
+        var explanationHtml = card.RussianExplanation.Replace("\n", "<br>");
         
         var fields = new Dictionary<string, string>
         {
             ["Expression"] = card.Greek,
             ["Meaning"] = meaningHtml,
+            ["RussianExplanation"] = explanationHtml,
             ["Audio"] = "" // AnkiConnect will populate this when processing the audio array
         };
         
@@ -408,11 +412,13 @@ app.MapPost("/api/cards/create", async (IHttpClientFactory httpClientFactory, Cr
             
             // Convert newlines to HTML breaks for Anki
             var meaningHtml = card.Translation.Replace("\n", "<br>");
+            var explanationHtml = card.RussianExplanation.Replace("\n", "<br>");
             
             var fields = new Dictionary<string, string>
             {
                 ["Expression"] = card.Greek,
                 ["Meaning"] = meaningHtml,
+                ["RussianExplanation"] = explanationHtml,
                 ["Audio"] = "" // AnkiConnect will populate this when processing the audio array
             };
             
@@ -475,6 +481,74 @@ app.MapPost("/api/cards/create", async (IHttpClientFactory httpClientFactory, Cr
     return Results.Ok(results);
 });
 
+// Generate Russian explanation using Gemini API
+app.MapPost("/api/gemini/explain", async (IHttpClientFactory httpClientFactory, GeminiExplainRequest request, ILogger<Program> logger) =>
+{
+    var http = httpClientFactory.CreateClient();
+    
+    if (string.IsNullOrEmpty(request.ApiKey))
+        return Results.BadRequest("Gemini API key is required");
+    
+    var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={request.ApiKey}";
+    
+    var prompt = $@"Ты - преподаватель греческого языка. Дай краткое объяснение на русском языке (максимум 2-3 предложения) для следующего греческого слова или фразы.
+
+Греческое слово/фраза: {request.Greek}
+Английский перевод: {request.English}
+
+Дай краткое, полезное объяснение на русском языке, которое поможет запомнить это слово. Включи информацию о контексте использования, если уместно.";
+
+    var requestBody = new
+    {
+        contents = new[]
+        {
+            new
+            {
+                parts = new[]
+                {
+                    new { text = prompt }
+                }
+            }
+        },
+        generationConfig = new
+        {
+            temperature = 0.7,
+            maxOutputTokens = 200
+        }
+    };
+    
+    try
+    {
+        logger.LogInformation($"Calling Gemini API for: {request.Greek}");
+        
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, url);
+        httpRequest.Content = JsonContent.Create(requestBody);
+        
+        var response = await http.SendAsync(httpRequest);
+        
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            logger.LogError($"Gemini API error: {error}");
+            return Results.BadRequest($"Gemini API error: {error}");
+        }
+        
+        var responseBody = await response.Content.ReadAsStringAsync();
+        logger.LogInformation($"Gemini response: {responseBody}");
+        
+        var result = System.Text.Json.JsonSerializer.Deserialize<GeminiResponse>(responseBody, jsonOptions);
+        
+        var explanation = result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text?.Trim() ?? "";
+        
+        return Results.Ok(new { explanation });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error calling Gemini API");
+        return Results.BadRequest($"Error generating explanation: {ex.Message}");
+    }
+});
+
 // Test AnkiConnect connection
 app.MapGet("/api/anki/test", async (IHttpClientFactory httpClientFactory, string? url) =>
 {
@@ -529,12 +603,14 @@ record FlashCard
     public string Id { get; set; } = "";
     public string Greek { get; set; } = "";
     public string Translation { get; set; } = "";
+    public string RussianExplanation { get; set; } = "";
     public bool Selected { get; set; } = true;
 }
 
 record ParseTextRequest(string Text);
 record DuplicateCheckRequest(string SessionId, string? AnkiConnectUrl);
 record AudioGenerateRequest(string Text, string ApiKey, string? VoiceId);
+record GeminiExplainRequest(string Greek, string English, string ApiKey);
 record CreateSingleCardRequest(
     string SessionId,
     string CardId,
@@ -563,5 +639,25 @@ record AnkiConnectResponse<T>
 {
     public T? Result { get; set; }
     public string? Error { get; set; }
+}
+
+record GeminiResponse
+{
+    public List<GeminiCandidate>? Candidates { get; set; }
+}
+
+record GeminiCandidate
+{
+    public GeminiContent? Content { get; set; }
+}
+
+record GeminiContent
+{
+    public List<GeminiPart>? Parts { get; set; }
+}
+
+record GeminiPart
+{
+    public string? Text { get; set; }
 }
 

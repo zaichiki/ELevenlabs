@@ -1,11 +1,12 @@
-# Greek Flashcard Generator with ElevenLabs Audio
+# Greek Flashcard Generator with ElevenLabs Audio & AI Explanations
 
-A .NET 8 minimal API application that creates Anki flashcards with Greek audio from ElevenLabs.
+A .NET 8 minimal API application that creates Anki flashcards with Greek audio from ElevenLabs and Russian explanations powered by Google Gemini AI.
 
 ## Features
 
-- 📤 Upload text files with Greek text and translations
+- 📤 Paste Greek text with English and Russian translations
 - 🔊 Generate Greek audio using ElevenLabs API
+- 🤖 Auto-generate Russian explanations using Google Gemini AI
 - 🎴 Create flashcards directly in Anki via AnkiConnect
 - ✅ Check for duplicates before creating cards
 - ✏️ Review and edit cards before creation
@@ -21,64 +22,101 @@ A .NET 8 minimal API application that creates Anki flashcards with Greek audio f
 3. **ElevenLabs Account** with API access
    - Sign up: https://elevenlabs.io/
    - Get API key: https://elevenlabs.io/app/settings/api-keys
+4. **Google Gemini API Key** (for Russian explanations)
+   - Get your free API key: https://aistudio.google.com/app/apikey
 
 ## Setup
 
 1. **Clone/Download** this project
 
-2. **Configure ElevenLabs** (optional - can also be set in the UI):
-   - Open `appsettings.json`
-   - Add your ElevenLabs API key
+2. **Configure API Keys** in `appsettings.json`:
+   ```json
+   {
+     "ElevenLabs": {
+       "ApiKey": "your_elevenlabs_api_key_here"
+     },
+     "Gemini": {
+       "ApiKey": "your_gemini_api_key_here"
+     }
+   }
+   ```
 
-3. **Run the application**:
+3. **Setup Anki Note Type**:
+   - Open Anki Desktop
+   - Go to Tools → Manage Note Types
+   - Select your note type (or create "EL Custom")
+   - Click **Fields** and ensure you have:
+     - `Expression` (Greek text)
+     - `Meaning` (Translation)
+     - `RussianExplanation` (AI-generated explanation)
+     - `Audio` (Audio file)
+
+4. **Run the application**:
    ```bash
    dotnet run
    ```
 
-4. **Open your browser**:
+5. **Open your browser**:
    - Navigate to: http://localhost:5000 (or the URL shown in the console)
 
 ## Usage
 
-### 1. Prepare Your Text File
+### 1. Prepare Your Text
 
-Create a `.txt` file with this format:
+Format your text with alternating lines:
 ```
-Καλημέρα
-Good morning
-Ευχαριστώ
-Thank you
-Παρακαλώ
-Please
+Καλημέρα; Good morning!
+Доброе утро!
+Θέλω νερό. I want water.
+Хочу воды.
+Ευχαριστώ! Thank you!
+Спасибо!
 ```
 
-Format: Line 1 = Greek, Line 2 = Translation, Line 3 = Greek, Line 4 = Translation, etc.
+**Format:** 
+- Line 1: Greek + English (separated naturally)
+- Line 2: Russian translation
+- Line 3: Next Greek + English
+- Line 4: Next Russian translation
+- etc.
 
 ### 2. Configure the App
 
 1. Make sure Anki is running
-2. Test the AnkiConnect connection
-3. Enter your ElevenLabs API key
-4. Select your target deck and note type
+2. Check the AnkiConnect connection status (green dot)
+3. Select your preferred ElevenLabs voice
 
 ### 3. Create Flashcards
 
-1. Upload your text file
-2. Review the parsed cards (edit if needed)
-3. Click "Check Duplicates" to find existing cards
-4. Select/deselect cards as needed
-5. Click "Create Selected Cards"
+1. **Paste your text** into the input area
+2. Click **"Process Text"**
+3. Review the parsed cards (edit if needed)
+4. **Generate AI Explanations**:
+   - Click **"🤖 Generate All Explanations"** for batch generation
+   - Or click individual **"🤖 Auto-Generate"** buttons per card
+5. Duplicate cards are automatically detected and deselected
+6. Select/deselect cards as needed
+7. Click **"Create Selected Cards"**
 
 The app will:
 - Generate Greek audio for each card using ElevenLabs
-- Create the cards in Anki with the audio attached
+- Include the Russian translation and AI-generated explanation
+- Create the cards in Anki with audio attached
 - Show you the results
 
-## File Format Variations
+## AI-Generated Explanations
 
-The current parser expects alternating lines (Greek, Translation, Greek, Translation...).
+The app uses **Google Gemini 2.0 Flash** to automatically generate helpful Russian explanations for each Greek word or phrase. These explanations:
 
-To support other formats in the future, you can modify the parsing logic in the `/api/cards/parse` endpoint in `Program.cs`.
+- Provide context about how the word is used
+- Help with memorization
+- Are brief (2-3 sentences)
+- Appear in a subtle, non-distracting style on the card back
+
+**Example:**
+- **Greek:** Καλημέρα
+- **Translation:** Good morning! / Доброе утро!
+- **AI Explanation:** *"Это приветствие используется утром до полудня. Состоит из 'καλή' (хорошая) и 'ημέρα' (день). Очень распространённое повседневное выражение."*
 
 ## AnkiConnect Configuration
 
@@ -104,33 +142,79 @@ The app uses a default multilingual voice. To use a different voice:
 - Check you have sufficient credits in your account
 - Ensure you're using a voice that supports Greek (multilingual voices)
 
+### Gemini API errors
+- Verify your API key is correct in `appsettings.json`
+- Check you haven't exceeded the free tier limits (15 requests/min, 1,500/day)
+- Make sure you have internet connectivity
+
 ### Cards not created
 - Check that the deck name exists in Anki
-- Verify the note type (model) has "Expression", "Meaning", and "Audio" fields
-- Look at the error messages for specific issues
+- Verify the note type has these fields: `Expression`, `Meaning`, `RussianExplanation`, `Audio`
+- Look at the browser console for specific error messages
+
+### RussianExplanation field not found
+- You need to add the `RussianExplanation` field to your Anki note type
+- Go to: Tools → Manage Note Types → [Your Model] → Fields → Add
+- Add a field named exactly: `RussianExplanation`
 
 ## Project Structure
 
 ```
 ELevenlabs/
-├── Program.cs              # Main API endpoints
-├── ELevenlabs.csproj      # Project file
-├── appsettings.json       # Configuration
+├── Program.cs                      # Main API endpoints
+├── ELevenlabs.csproj              # Project file
+├── appsettings.json               # Configuration (API keys)
 ├── wwwroot/
-│   └── index.html         # Web UI
-└── README.md              # This file
+│   ├── index.html                 # Web UI
+│   └── anki-card-template.html    # Anki card template with styling
+├── README.md                      # This file
+└── GEMINI_INTEGRATION.md          # Detailed Gemini AI integration docs
 ```
 
 ## API Endpoints
 
-- `POST /api/cards/parse` - Parse uploaded text file
+- `GET /api/config` - Get configuration (API keys, defaults)
+- `POST /api/cards/parse` - Parse text input into cards
 - `GET /api/cards/{sessionId}` - Get parsed cards
 - `PUT /api/cards/{sessionId}/{cardId}` - Update a card
 - `POST /api/cards/check-duplicates` - Check for duplicates in Anki
-- `POST /api/cards/create` - Create selected cards in Anki
+- `POST /api/cards/create-single` - Create single card in Anki
+- `POST /api/cards/create` - Create multiple cards in Anki
+- `POST /api/gemini/explain` - Generate Russian explanation using Gemini AI
 - `GET /api/anki/test` - Test AnkiConnect connection
-- `GET /api/anki/decks` - Get list of Anki decks
-- `GET /api/anki/models` - Get list of Anki note types
+
+## Card Template
+
+The included Anki card template (`anki-card-template.html`) provides:
+- Clean, modern design with animations
+- Greek text prominently displayed
+- English and Russian translations
+- AI-generated explanation in subtle, italicized style
+- Audio playback button
+- Reversed cards (translation → Greek)
+- Night mode support
+- Mobile responsive
+
+Copy the template sections from `anki-card-template.html` into your Anki note type's Front/Back/Styling fields.
+
+## Rate Limits
+
+**Google Gemini Free Tier:**
+- 15 requests per minute
+- 1,500 requests per day
+
+The batch generation feature includes automatic 500ms delays between requests to stay within limits.
+
+**ElevenLabs:**
+- Varies by plan
+- Check your account for current limits
+
+## Technologies Used
+
+- **.NET 8** - Minimal API
+- **ElevenLabs API** - Greek text-to-speech
+- **Google Gemini 2.0 Flash** - AI-powered Russian explanations
+- **AnkiConnect** - Anki integration
 
 ## License
 

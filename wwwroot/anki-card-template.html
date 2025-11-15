@@ -28,6 +28,13 @@
                 <div class="translation-text">{{Meaning}}</div>
             </div>
             
+            {{#RussianExplanation}}
+            <div class="explanation-section">
+                <div class="explanation-label">💡 Объяснение:</div>
+                <div class="explanation-text">{{RussianExplanation}}</div>
+            </div>
+            {{/RussianExplanation}}
+            
             {{#Audio}}
             <div class="audio-section">
                 {{Audio}}
@@ -67,6 +74,13 @@
             <div class="translation-section">
                 <div class="greek-text">{{Expression}}</div>
             </div>
+            
+            {{#RussianExplanation}}
+            <div class="explanation-section">
+                <div class="explanation-label">💡 Объяснение:</div>
+                <div class="explanation-text">{{RussianExplanation}}</div>
+            </div>
+            {{/RussianExplanation}}
             
             {{#Audio}}
             <div class="audio-section">
@@ -169,6 +183,29 @@ html, body {
     border-left: 4px solid #667eea;
 }
 
+/* Explanation Section */
+.explanation-section {
+    margin: 20px 0;
+    padding: 12px 16px;
+    background: #f5f5f5;
+    border-radius: 8px;
+    border-left: 3px solid #bdbdbd;
+}
+
+.explanation-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #757575;
+    margin-bottom: 6px;
+}
+
+.explanation-text {
+    font-size: 15px;
+    color: #616161;
+    line-height: 1.5;
+    font-style: italic;
+}
+
 /* Audio Section */
 .audio-section {
     margin: 25px 0;
@@ -252,6 +289,19 @@ html, body {
 .night_mode .translation-text {
     background: #1a202c;
     color: #cbd5e0;
+}
+
+.night_mode .explanation-section {
+    background: #2d3748;
+    border-color: #718096;
+}
+
+.night_mode .explanation-label {
+    color: #a0aec0;
+}
+
+.night_mode .explanation-text {
+    color: #a0aec0;
 }
 
 .night_mode .audio-section {
