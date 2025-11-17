@@ -13,7 +13,6 @@ obj/
 ## User-specific files
 appsettings.Development.json
 appsettings.*.json
-!appsettings.json
 
 ## Build results
 [Dd]ebug/
